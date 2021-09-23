@@ -50,7 +50,7 @@ fn parse_struct(input: DeriveInput) -> Result<TokenStream> {
             predicates: Default::default(),
         });
 
-    for generic in impl_generics.params.iter() {
+    for generic in generics.params.iter() {
         match generic {
             GenericParam::Type(ty) => {
                 let ident = &ty.ident;
@@ -61,6 +61,12 @@ fn parse_struct(input: DeriveInput) -> Result<TokenStream> {
                     .expect("couldn't parse where predicate"),
                 )
             }
+            GenericParam::Lifetime(lt) => where_clause.predicates.push(
+                syn::parse2(quote! {
+                    '_zval: #lt
+                })
+                .expect("couldn't parse where predicate"),
+            ),
             _ => continue,
         }
     }

@@ -352,6 +352,14 @@ impl<T: RegisteredClass> IntoZval for T {
     }
 }
 
+impl<'a> FromZval<'a> for &'a ZendObject {
+    const TYPE: DataType = DataType::Object(None);
+
+    fn from_zval(zval: &'a Zval) -> Option<Self> {
+        zval.object()
+    }
+}
+
 impl<'a, T: RegisteredClass> FromZval<'a> for &'a T {
     const TYPE: DataType = DataType::Object(Some(T::CLASS_NAME));
 

@@ -1,4 +1,4 @@
-use ext_php_rs::prelude::*;
+use ext_php_rs::{php::types::object::ZendObject, prelude::*};
 
 #[php_class]
 struct TestClass {
@@ -43,9 +43,17 @@ where
     c: C,
 }
 
+#[derive(Debug, FromZval)]
+pub enum UnionExample<'a, T> {
+    B(T),
+    C(&'a str),
+    Obj(&'a ZendObject),
+    None,
+}
+
 #[php_function]
-pub fn test_stdclass(obj: TestStdClass<i32, &str, &str>) {
-    dbg!(obj);
+pub fn test_union(union: UnionExample<i32>) {
+    dbg!(union);
 }
 
 #[php_module]

@@ -1,29 +1,17 @@
 use anyhow::{bail, Context, Result};
 use darling::ToTokens;
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::{Ident, Span, TokenStream};
 use quote::quote;
 use syn::token::Where;
-use syn::{DeriveInput, GenericParam, Generics, Lifetime, LifetimeDef, WhereClause};
+use syn::{
+    DataEnum, DataStruct, DeriveInput, GenericParam, Generics, Lifetime, LifetimeDef, TypeGenerics,
+    Variant, WhereClause,
+};
 
 pub fn parser(input: DeriveInput) -> Result<TokenStream> {
-    match &input.data {
-        syn::Data::Struct(_) => parse_struct(input),
-        syn::Data::Enum(_) => parse_enum(input),
-        _ => bail!("Only structs and enums are supported by the `#[derive(FromZval)]` macro."),
-    }
-}
-
-fn parse_struct(input: DeriveInput) -> Result<TokenStream> {
     let DeriveInput {
-        data,
-        generics,
-        ident,
-        ..
+        generics, ident, ..
     } = input;
-    let data = match data {
-        syn::Data::Struct(data) => data,
-        _ => unreachable!(),
-    };
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
@@ -41,14 +29,12 @@ fn parse_struct(input: DeriveInput) -> Result<TokenStream> {
         parsed
     };
 
-    let mut where_clause = where_clause
-        .map(|w| w.clone())
-        .unwrap_or_else(|| WhereClause {
-            where_token: Where {
-                span: Span::call_site(),
-            },
-            predicates: Default::default(),
-        });
+    let mut where_clause = where_clause.cloned().unwrap_or_else(|| WhereClause {
+        where_token: Where {
+            span: Span::call_site(),
+        },
+        predicates: Default::default(),
+    });
 
     for generic in generics.params.iter() {
         match generic {
@@ -71,6 +57,22 @@ fn parse_struct(input: DeriveInput) -> Result<TokenStream> {
         }
     }
 
+    match input.data {
+        syn::Data::Struct(data) => {
+            parse_struct(data, ident, impl_generics, ty_generics, where_clause)
+        }
+        syn::Data::Enum(data) => parse_enum(data, ident, impl_generics, ty_generics, where_clause),
+        _ => bail!("Only structs and enums are supported by the `#[derive(FromZval)]` macro."),
+    }
+}
+
+fn parse_struct(
+    data: DataStruct,
+    ident: Ident,
+    impl_generics: Generics,
+    ty_generics: TypeGenerics,
+    where_clause: WhereClause,
+) -> Result<TokenStream> {
     let fields = data
         .fields
         .iter()
@@ -101,20 +103,58 @@ fn parse_struct(input: DeriveInput) -> Result<TokenStream> {
     })
 }
 
-fn parse_enum(input: DeriveInput) -> Result<TokenStream> {
-    let DeriveInput {
-        data,
-        attrs,
-        vis,
-        generics,
-        ident,
-    } = input;
+fn parse_enum(
+    data: DataEnum,
+    ident: Ident,
+    impl_generics: Generics,
+    ty_generics: TypeGenerics,
+    where_clause: WhereClause,
+) -> Result<TokenStream> {
+    let mut default = None;
+    let variants = data.variants.iter().map(|variant| {
+        let Variant {
+            ident,
+            fields,
+            ..
+        } = variant;
+
+        match fields {
+            syn::Fields::Unnamed(fields) => {
+                if fields.unnamed.len() != 1 {
+                    bail!("Enum variant must only have one field when using `#[derive(FromZval)]`.");
+                }
+
+                let ty = &fields.unnamed.first().unwrap().ty;
+
+                Ok(Some(quote! {
+                    if let Some(value) = <#ty>::from_zval(zval) {
+                        return Some(Self::#ident(value));
+                    }
+                }))
+            },
+            syn::Fields::Unit => {
+                if default.is_some() {
+                    bail!("Only one enum unit type is valid as a default when using `#[derive(FromZval)]`.");
+                }
+
+                default.replace(quote! {
+                    Some(Self::#ident)
+                });
+                Ok(None)
+            }
+            _ => bail!("Enum variants must be unnamed and have only one field inside the variant when using `#[derive(FromZval)]`.")
+        }
+    }).collect::<Result<Vec<_>>>()?;
+
+    let default = default.unwrap_or_else(|| quote! { None });
+
     Ok(quote! {
-        impl ::ext_php_rs::php::types::zval::FromZval<'_> for #ident {
-            const TYPE: ::ext_php_rs::php::enums::DataType = ::ext_php_rs::php::enums::DataType::Object(::std::option::Option::None);
+        impl #impl_generics ::ext_php_rs::php::types::zval::FromZval<'_zval> for #ident #ty_generics #where_clause {
+            const TYPE: ::ext_php_rs::php::enums::DataType = ::ext_php_rs::php::enums::DataType::Mixed;
 
-            fn from_zval(zval: &::ext_php_rs::php::types::zval::Zval) -> ::std::option::Option<Self> {
-
+            fn from_zval(zval: &'_zval ::ext_php_rs::php::types::zval::Zval) -> ::std::option::Option<Self> {
+                #(#variants)*
+                #default
             }
         }
     })

@@ -33,6 +33,21 @@ impl TestClass {
     }
 }
 
+#[derive(Debug, FromZval)]
+pub struct TestStdClass<A, B, C>
+where
+    A: PartialEq<i32>,
+{
+    a: A,
+    b: B,
+    c: C,
+}
+
+#[php_function]
+pub fn test_stdclass(obj: TestStdClass<i32, &str, &str>) {
+    dbg!(obj);
+}
+
 #[php_module]
 pub fn module(module: ModuleBuilder) -> ModuleBuilder {
     module

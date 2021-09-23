@@ -437,6 +437,8 @@ pub use ext_php_rs_derive::php_class;
 /// ```
 pub use ext_php_rs_derive::php_startup;
 
+pub use ext_php_rs_derive::FromZval;
+
 /// A module typically glob-imported containing the typically required macros and imports.
 pub mod prelude {
     pub use crate::php::exceptions::{PhpException, PhpResult};
@@ -452,4 +454,5 @@ pub mod prelude {
     pub use crate::php_impl;
     pub use crate::php_module;
     pub use crate::php_startup;
+    pub use crate::FromZval;
 }

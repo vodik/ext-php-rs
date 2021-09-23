@@ -1,6 +1,7 @@
 mod class;
 mod constant;
 mod extern_;
+mod from_zval;
 mod function;
 mod impl_;
 mod method;
@@ -16,7 +17,8 @@ use constant::Constant;
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use syn::{
-    parse_macro_input, AttributeArgs, ItemConst, ItemFn, ItemForeignMod, ItemImpl, ItemStruct,
+    parse_macro_input, AttributeArgs, DeriveInput, ItemConst, ItemFn, ItemForeignMod, ItemImpl,
+    ItemStruct,
 };
 
 extern crate proc_macro;
@@ -120,6 +122,18 @@ pub fn php_extern(_: TokenStream, input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as ItemForeignMod);
 
     match extern_::parser(input) {
+        Ok(parsed) => parsed,
+        Err(e) => syn::Error::new(Span::call_site(), e).to_compile_error(),
+    }
+    .into()
+}
+
+// TODO(david): potentially add option to ignore field in exchange for `Default::default()`?
+#[proc_macro_derive(FromZval)]
+pub fn from_zval_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    match from_zval::parser(input) {
         Ok(parsed) => parsed,
         Err(e) => syn::Error::new(Span::call_site(), e).to_compile_error(),
     }

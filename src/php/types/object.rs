@@ -76,7 +76,11 @@ impl ZendObject {
     /// # Parameters
     ///
     /// * `name` - The name of the property.
-    pub fn get_property<'a, T: FromZval<'a>>(&self, name: &str) -> Result<T> {
+    /// * `query` - The type of query to use when attempting to get a property.
+    pub fn get_property<'a, T>(&'a self, name: &str) -> Result<T>
+    where
+        T: FromZval<'a>,
+    {
         if !self.has_property(name, PropertyQuery::Exists)? {
             return Err(Error::InvalidProperty);
         }

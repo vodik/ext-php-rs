@@ -437,6 +437,114 @@ pub use ext_php_rs_derive::php_class;
 /// ```
 pub use ext_php_rs_derive::php_startup;
 
+/// Derives the [`FromZval`] on a struct or enum.
+///
+/// # Structs
+///
+/// When the macro is used on a struct, the [`FromZval`] implementation will treat the struct as an
+/// anonymous PHP class, and will attempt to retrieve values for the struct fields from the objects
+/// properties. This can be useful when you expect some arbitrary object (of which the type does
+/// not matter), but you care about the value of the properties.
+///
+/// All properties must implement [`FromZval`] themselves. Generics are supported, however, a
+/// [`FromZval`] bound will be added. If one property cannot be retrieved from the object, the
+/// whole conversion will fail.
+///
+/// ## Examples
+///
+/// Basic example with some primitive PHP type.
+///
+/// ```
+/// # use ext_php_rs::prelude::*;
+/// #[derive(Debug, FromZval)]
+/// pub struct ExampleStruct<'a> {
+///     a: i32,
+///     b: String,
+///     c: &'a str
+/// }
+///
+/// #[php_function]
+/// pub fn take_object(obj: ExampleStruct) {
+///     dbg!(obj);
+/// }
+/// ```
+///
+/// Can be used in PHP:
+///
+/// ```php
+/// $obj = (object) [
+///     'a' => 5,
+///     'b' => 'Hello, world!',
+///     'c' => 'asdf',
+/// ];
+/// take_object($obj);
+/// ```
+///
+/// Another example involving generics:
+///
+/// ```
+/// # use ext_php_rs::prelude::*;
+/// #[derive(Debug, FromZval)]
+/// pub struct CompareVals<T: PartialEq<i32>> {
+///     a: T,
+///     b: T
+/// }
+///
+/// #[php_function]
+/// pub fn take_object(obj: CompareVals<i32>) {
+///     dbg!(obj);
+/// }
+/// ```
+///
+/// # Enums
+///
+/// When the macro is used on an enum, the [`FromZval`] implementation will treat the enum as a
+/// tagged union with a mixed datatype. This allows you to accept two different types in a
+/// parameter, for example, a string and an integer.
+///
+/// The enum variants must not have named fields (i.e. in the form of a struct), and must have
+/// exactly one field, the type to extract from the [`Zval`]. Optionally, the enum may have a
+/// single default, empty variant, which is used when the [`Zval`] did not contain any data to fill
+/// the other variants.
+///
+/// The ordering of the enum variants is important, as the [`Zval`] contents is matched in order of
+/// the variants. For example, [`Zval::string`] will attempt to read a string from the [`Zval`],
+/// and if the [`Zval`] contains a long, the long will be converted to a string. If a string
+/// variant was placed above an integer variant in the enum, the integer would be converted into a
+/// string and passed as the string variant.
+///
+/// ## Examples
+///
+/// Basic example showing the importance of variant ordering and default field:
+///
+/// ```
+/// # use ext_php_rs::prelude::*;
+/// #[derive(Debug, FromZval)]
+/// pub enum UnionExample<'a> {
+///     Long(u64), // Long
+///     ProperStr(&'a str), // Actual string - not a converted value
+///     ParsedStr(String), // Potentially parsed string, i.e. a double
+///     None // Zval did not contain anything that could be parsed above
+/// }
+///
+/// #[php_function]
+/// pub fn test_union(val: UnionExample) {
+///     dbg!(val);
+/// }
+/// ```
+///
+/// Use in PHP:
+///
+/// ```php
+/// test_union(5); // UnionExample::Long(5)
+/// test_union("Hello, world!"); // UnionExample::ProperStr("Hello, world!")
+/// test_union(5.66666); // UnionExample::ParsedStr("5.6666")
+/// test_union(null); // UnionExample::None
+/// ```
+///
+/// [`FromZval`]: crate::php::types::zval::FromZval
+/// [`Zval`]: crate::php::types::zval::Zval
+/// [`Zval::string`]: crate::php::types::zval::Zval::string
 pub use ext_php_rs_derive::FromZval;
 
 /// A module typically glob-imported containing the typically required macros and imports.

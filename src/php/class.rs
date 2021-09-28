@@ -2,7 +2,12 @@
 
 use crate::{
     errors::{Error, Result},
-    php::types::object::{ZendClassObject, ZendObject},
+    php::{
+        exceptions::PhpException,
+        execution_data::ExecutionData,
+        function::FunctionBuilder,
+        types::object::{ConstructorMeta, ConstructorResult, ZendClassObject, ZendObject},
+    },
 };
 use std::{alloc::Layout, convert::TryInto, ffi::CString, fmt::Debug};
 
@@ -276,9 +281,57 @@ impl ClassBuilder {
             (*ptr).get_mut_zend_obj()
         }
 
-        assert_eq!(self.name.as_str(), T::CLASS_NAME);
+        extern "C" fn constructor<T: RegisteredClass>(ex: &mut ExecutionData, _: &mut Zval) {
+            let ConstructorMeta { constructor, .. } = match T::CONSTRUCTOR {
+                Some(c) => c,
+                None => {
+                    PhpException::default("You cannot instantiate this class from PHP.".into())
+                        .throw()
+                        .expect("Failed to throw exception when constructing class");
+                    return;
+                }
+            };
+
+            let this = match constructor(ex) {
+                ConstructorResult::Ok(this) => this,
+                ConstructorResult::Exception(e) => {
+                    e.throw()
+                        .expect("Failed to throw exception while constructing class");
+                    return;
+                }
+                ConstructorResult::ArgError => return,
+            };
+            let mut this_obj = match unsafe { ex.get_object::<T>() } {
+                Some(obj) => obj,
+                None => {
+                    PhpException::default("Failed to retrieve reference to `this` object.".into())
+                        .throw()
+                        .expect("Failed to throw exception while constructing class");
+                    return;
+                }
+            };
+            this_obj.internal_mut().replace_obj(this);
+        }
+
+        debug_assert_eq!(
+            self.name.as_str(),
+            T::CLASS_NAME,
+            "Class name in builder does not match class name in `impl RegisteredClass`."
+        );
         self.object_override = Some(create_object::<T>);
-        self
+        self.method(
+            {
+                let args = T::CONSTRUCTOR
+                    .map(|ConstructorMeta { get_args, .. }| get_args())
+                    .unwrap_or_default();
+                let mut func = FunctionBuilder::new("__construct", constructor::<T>);
+                for arg in args {
+                    func = func.arg(arg);
+                }
+                func.build().expect("Failed to build constructor function")
+            },
+            MethodFlags::Public,
+        )
     }
 
     /// Builds the class, returning a reference to the class entry.

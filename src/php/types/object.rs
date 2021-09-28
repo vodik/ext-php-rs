@@ -24,9 +24,11 @@ use crate::{
     },
     errors::{Error, Result},
     php::{
+        args::Arg,
         class::ClassEntry,
         enums::DataType,
-        exceptions::PhpResult,
+        exceptions::{PhpException, PhpResult},
+        execution_data::ExecutionData,
         flags::ZvalTypeFlags,
         types::{array::OwnedHashTable, string::ZendString},
     },
@@ -368,14 +370,25 @@ impl<'a, T: RegisteredClass> FromZval<'a> for &'a mut T {
     }
 }
 
+/// Object constructor metadata.
+pub struct ConstructorMeta<T> {
+    /// Constructor function.
+    pub constructor: fn(&mut ExecutionData) -> ConstructorResult<T>,
+    /// Function returning a list of args required to call the constructor.
+    pub get_args: fn() -> Vec<Arg<'static>>,
+}
+
 /// Implemented on Rust types which are exported to PHP. Allows users to get and set PHP properties on
 /// the object.
-pub trait RegisteredClass: Default + Sized
+pub trait RegisteredClass: Sized
 where
     Self: 'static,
 {
     /// PHP class name of the registered class.
     const CLASS_NAME: &'static str;
+
+    /// Optional class constructor.
+    const CONSTRUCTOR: Option<ConstructorMeta<Self>> = None;
 
     /// Returns a reference to the class metadata, which stores the class entry and handlers.
     ///
@@ -439,12 +452,25 @@ where
 #[repr(C)]
 pub(crate) struct ZendClassObject<T> {
     obj: MaybeUninit<T>,
+    init: bool,
     std: zend_object,
 }
 
 impl<T: RegisteredClass> ZendClassObject<T> {
     /// Allocates memory for a new PHP object. The memory is allocated using the Zend memory manager,
     /// and therefore it is returned as a pointer.
+    ///
+    /// # Parameters
+    ///
+    /// * `val` - The value to put into the class object.
+    ///
+    /// # Safety
+    ///
+    /// The `obj` field of the [`ZendClassObject`] is only initialized if a value is given for the `val`
+    /// parameter. If [`None`] is given, you must not access `obj` or set it later with the [`replace_obj`]
+    /// function.
+    ///
+    /// [`replace_obj`]: #method.replace_obj
     pub(crate) fn new_ptr(val: Option<T>) -> *mut Self {
         let size = mem::size_of::<Self>();
         let meta = T::get_metadata();
@@ -457,7 +483,13 @@ impl<T: RegisteredClass> ZendClassObject<T> {
             zend_object_std_init(&mut obj.std, ce);
             object_properties_init(&mut obj.std, ce);
 
-            obj.obj = MaybeUninit::new(val.unwrap_or_default());
+            obj.obj = if let Some(val) = val {
+                obj.init = true;
+                MaybeUninit::new(val)
+            } else {
+                obj.init = false;
+                MaybeUninit::uninit()
+            };
             obj.std.handlers = meta.handlers();
             obj
         }
@@ -518,6 +550,13 @@ impl<T: RegisteredClass> ZendClassObject<T> {
 
             (std as usize) - (base as usize)
         }
+    }
+
+    /// Replaces the Rust object `T` inside the class object without calling the `Drop`
+    /// implementation on the pre-existing object.
+    pub(crate) fn replace_obj(&mut self, val: T) {
+        self.obj = MaybeUninit::new(val);
+        self.init = true;
     }
 }
 
@@ -603,6 +642,31 @@ impl<T: RegisteredClass> ClassMetadata<T> {
     }
 }
 
+/// Result returned from a constructor of a class.
+pub enum ConstructorResult<T> {
+    /// Successfully constructed the class, contains the new class object.
+    Ok(T),
+    /// An exception occured while constructing the class.
+    Exception(PhpException),
+    /// Invalid arguments were given to the constructor.
+    ArgError,
+}
+
+impl<T> From<PhpResult<T>> for ConstructorResult<T> {
+    fn from(result: PhpResult<T>) -> Self {
+        match result {
+            Ok(x) => Self::Ok(x),
+            Err(e) => Self::Exception(e),
+        }
+    }
+}
+
+impl<T> From<T> for ConstructorResult<T> {
+    fn from(result: T) -> Self {
+        Self::Ok(result)
+    }
+}
+
 impl ZendObjectHandlers {
     /// Initializes a given set of object handlers by copying the standard object handlers into
     /// the memory location, as well as setting up the `T` type destructor.
@@ -629,8 +693,10 @@ impl ZendObjectHandlers {
         let obj = ZendClassObject::<T>::from_zend_obj_ptr(object)
             .expect("Invalid object pointer given for `free_obj`");
 
-        // Manually drop the object as it is wrapped with `MaybeUninit`.
-        ptr::drop_in_place(obj.obj.as_mut_ptr());
+        // Manually drop the object as it is wrapped with `MaybeUninit`.w
+        if obj.init {
+            ptr::drop_in_place(obj.obj.as_mut_ptr());
+        }
 
         zend_object_std_dtor(object)
     }

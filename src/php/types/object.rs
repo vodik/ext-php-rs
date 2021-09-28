@@ -652,11 +652,14 @@ pub enum ConstructorResult<T> {
     ArgError,
 }
 
-impl<T> From<PhpResult<T>> for ConstructorResult<T> {
-    fn from(result: PhpResult<T>) -> Self {
+impl<T, E> From<std::result::Result<T, E>> for ConstructorResult<T>
+where
+    E: Into<PhpException>,
+{
+    fn from(result: std::result::Result<T, E>) -> Self {
         match result {
             Ok(x) => Self::Ok(x),
-            Err(e) => Self::Exception(e),
+            Err(e) => Self::Exception(e.into()),
         }
     }
 }

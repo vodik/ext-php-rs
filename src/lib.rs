@@ -261,7 +261,7 @@ pub use ext_php_rs_derive::php_function;
 /// ```no_run
 /// # use ext_php_rs::prelude::*;
 /// #[php_class]
-/// #[derive(Debug, Default)]
+/// #[derive(Debug)]
 /// pub struct Human {
 ///     name: String,
 ///     age: i32,
@@ -274,9 +274,8 @@ pub use ext_php_rs_derive::php_function;
 ///
 ///     #[optional(age)]
 ///     #[defaults(age = 0)]
-///     pub fn __construct(&mut self, name: String, age: i32) {
-///         self.name = name;
-///         self.age = age;
+///     pub fn __construct(name: String, age: i32) -> Self {
+///         Self { name, age }
 ///     }
 ///
 ///     pub fn get_name(&self) -> String {

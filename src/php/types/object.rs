@@ -24,12 +24,12 @@ use crate::{
     },
     errors::{Error, Result},
     php::{
-        args::Arg,
         class::ClassEntry,
         enums::DataType,
         exceptions::{PhpException, PhpResult},
         execution_data::ExecutionData,
         flags::ZvalTypeFlags,
+        function::FunctionBuilder,
         types::{array::OwnedHashTable, string::ZendString},
     },
 };
@@ -374,8 +374,8 @@ impl<'a, T: RegisteredClass> FromZval<'a> for &'a mut T {
 pub struct ConstructorMeta<T> {
     /// Constructor function.
     pub constructor: fn(&mut ExecutionData) -> ConstructorResult<T>,
-    /// Function returning a list of args required to call the constructor.
-    pub get_args: fn() -> Vec<Arg<'static>>,
+    /// Function called to build the constructor function. Usually adds arguments.
+    pub build_fn: fn(FunctionBuilder) -> FunctionBuilder,
 }
 
 /// Implemented on Rust types which are exported to PHP. Allows users to get and set PHP properties on

@@ -321,12 +321,9 @@ impl ClassBuilder {
         self.object_override = Some(create_object::<T>);
         self.method(
             {
-                let args = T::CONSTRUCTOR
-                    .map(|ConstructorMeta { get_args, .. }| get_args())
-                    .unwrap_or_default();
                 let mut func = FunctionBuilder::new("__construct", constructor::<T>);
-                for arg in args {
-                    func = func.arg(arg);
+                if let Some(ConstructorMeta { build_fn, .. }) = T::CONSTRUCTOR {
+                    func = build_fn(func);
                 }
                 func.build().expect("Failed to build constructor function")
             },

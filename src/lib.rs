@@ -256,6 +256,15 @@ pub use ext_php_rs_derive::php_function;
 /// Methods can take a immutable or a mutable reference to `self`, but cannot consume `self`. They
 /// can also take no reference to `self` which indicates a static method.
 ///
+/// ## Constructors
+///
+/// You may add *one* constructor to the impl block. This method must be called `__construct` or be
+/// tagged with the `#[constructor]` attribute, and it will not be exported to PHP like a regular
+/// method.
+///
+/// The constructor method must not take a reference to `self` and must return `Self` or
+/// [`Result<Self, E>`][`Result`], where `E: Into<PhpException>`.
+///
 /// # Example
 ///
 /// ```no_run
@@ -339,9 +348,8 @@ pub use ext_php_rs_derive::php_module;
 
 /// Annotates a struct that will be exported to PHP as a class.
 ///
-/// The struct that this attribute is used on must implement [`Default`], as this is used to
-/// initialize the struct before the constructor is called. You may define a constructor with
-/// the [`macro@php_impl`] macro which can modify the properties of the struct.
+/// By default, the class cannot be constructed from PHP. You must add a constructor method in the
+/// [`macro@php_impl`] impl block to be able to construct the object from PHP.
 ///
 /// This attribute takes a set of optional arguments:
 ///
@@ -371,7 +379,6 @@ pub use ext_php_rs_derive::php_module;
 /// ```
 /// # use ext_php_rs::prelude::*;
 /// #[php_class]
-/// #[derive(Default)]
 /// pub struct Example {
 ///     x: i32,
 ///     y: String,
@@ -393,7 +400,6 @@ pub use ext_php_rs_derive::php_module;
 ///
 /// #[php_class(name = "Redis\\Exception\\RedisException")]
 /// #[extends(ClassEntry::exception())]
-/// #[derive(Default)]
 /// pub struct Example;
 ///
 /// #[php_function]

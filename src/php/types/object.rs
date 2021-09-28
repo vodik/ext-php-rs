@@ -443,7 +443,7 @@ where
     /// Returns a hash table containing the properties of the class.
     ///
     /// The key should be the name of the property and the value should be a reference to the property
-    /// with reference to `self`. The value is a trait object for [`Prop`].
+    /// with reference to `self`. The value is a [`Property`].
     fn get_properties<'a>() -> HashMap<&'static str, Property<'a, Self>>;
 }
 

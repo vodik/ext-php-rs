@@ -7,7 +7,7 @@ use std::{
     ffi::c_void,
     fmt::Debug,
     marker::PhantomData,
-    mem::{self, MaybeUninit},
+    mem::{self, ManuallyDrop, MaybeUninit},
     ops::{Deref, DerefMut},
     os::raw::c_int,
     ptr::{self, NonNull},
@@ -18,9 +18,10 @@ use crate::{
     bindings::{
         ext_php_rs_zend_object_alloc, ext_php_rs_zend_object_release, object_properties_init,
         std_object_handlers, zend_is_true, zend_object, zend_object_handlers, zend_object_std_dtor,
-        zend_object_std_init, zend_objects_clone_members, zend_std_get_properties,
-        zend_std_has_property, zend_std_read_property, zend_std_write_property, zend_string,
-        HashTable, ZEND_ISEMPTY, ZEND_PROPERTY_EXISTS, ZEND_PROPERTY_ISSET,
+        zend_object_std_init, zend_objects_clone_members, zend_objects_new,
+        zend_standard_class_def, zend_std_get_properties, zend_std_has_property,
+        zend_std_read_property, zend_std_write_property, zend_string, HashTable, ZEND_ISEMPTY,
+        ZEND_PROPERTY_EXISTS, ZEND_PROPERTY_ISSET,
     },
     errors::{Error, Result},
     php::{
@@ -34,8 +35,99 @@ use crate::{
 
 use super::{
     props::Property,
+    rc::PhpRc,
     zval::{FromZval, IntoZval, Zval},
 };
+
+/// A wrapper around [`ZendObject`] providing the correct [`Drop`] implementation required to not
+/// leak memory. Dereferences to [`ZendObject`].
+pub struct OwnedZendObject(NonNull<ZendObject>);
+
+impl OwnedZendObject {
+    /// Creates a new [`ZendObject`], returned inside an [`OwnedZendObject`] wrapper.
+    ///
+    /// # Parameters
+    ///
+    /// * `ce` - The type of class the new object should be an instance of.
+    ///
+    /// # Panics
+    ///
+    /// Panics when allocating memory for the new object fails.
+    pub fn new(ce: &ClassEntry) -> Self {
+        // SAFETY: Using emalloc to allocate memory inside Zend arena. Casting `ce` to `*mut` is valid
+        // as the function will not mutate `ce`.
+        let ptr = unsafe { zend_objects_new(ce as *const _ as *mut _) };
+        Self(NonNull::new(ptr).expect("Failed to allocate Zend object"))
+    }
+
+    /// Creates a new `stdClass` instance, returned inside an [`OwnedZendObject`] wrapper.
+    ///
+    /// # Panics
+    ///
+    /// Panics if allocating memory for the object fails, or if the `stdClass` class entry has not been
+    /// registered with PHP yet.
+    pub fn new_stdclass() -> Self {
+        // SAFETY: This will be `NULL` until it is initialized. `as_ref()` checks for null,
+        // so we can panic if it's null.
+        Self::new(unsafe {
+            zend_standard_class_def
+                .as_ref()
+                .expect("`stdClass` class instance not initialized yet")
+        })
+    }
+
+    /// Consumes the [`OwnedZendObject`] wrapper, returning a mutable, static reference to the
+    /// underlying [`ZendObject`].
+    ///
+    /// It is the callers responsibility to free the underlying memory that the returned reference
+    /// points to.
+    pub fn into_inner(self) -> &'static mut ZendObject {
+        let mut this = ManuallyDrop::new(self);
+        unsafe { this.0.as_mut() }
+    }
+}
+
+impl Deref for OwnedZendObject {
+    type Target = ZendObject;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl DerefMut for OwnedZendObject {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.0.as_mut() }
+    }
+}
+
+impl Drop for OwnedZendObject {
+    fn drop(&mut self) {
+        unsafe { ext_php_rs_zend_object_release(self.0.as_ptr()) }
+    }
+}
+
+impl Debug for OwnedZendObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        unsafe { self.0.as_ref() }.fmt(f)
+    }
+}
+
+impl IntoZval for OwnedZendObject {
+    const TYPE: DataType = DataType::Object(None);
+
+    fn set_zval(self, zv: &mut Zval, _: bool) -> Result<()> {
+        let obj = self.into_inner();
+
+        // We must decrement the refcounter on the object before inserting into the zval,
+        // as the reference counter will be incremented on add.
+
+        // NOTE(david): again is this needed, we increment in `set_object`.
+        obj.dec_count();
+        zv.set_object(obj);
+        Ok(())
+    }
+}
 
 pub type ZendObject = zend_object;
 pub type ZendObjectHandlers = zend_object_handlers;

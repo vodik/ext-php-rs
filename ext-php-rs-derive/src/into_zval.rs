@@ -2,8 +2,8 @@ use anyhow::{bail, Context, Result};
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
-    token::Where, DataStruct, DeriveInput, GenericParam, Ident, ImplGenerics, TypeGenerics,
-    WhereClause,
+    token::Where, DataEnum, DataStruct, DeriveInput, GenericParam, Ident, ImplGenerics,
+    TypeGenerics, WhereClause,
 };
 
 pub fn parser(input: DeriveInput) -> Result<TokenStream> {
@@ -35,7 +35,7 @@ pub fn parser(input: DeriveInput) -> Result<TokenStream> {
         syn::Data::Struct(data) => {
             parse_struct(data, ident, impl_generics, ty_generics, where_clause)
         }
-        syn::Data::Enum(_) => todo!("enums"),
+        syn::Data::Enum(data) => parse_enum(data, ident, impl_generics, ty_generics, where_clause),
         _ => bail!("Only structs and enums are supported by the `#[derive(IntoZval)]` macro."),
     }
 }
@@ -76,6 +76,48 @@ fn parse_struct(
                 let mut obj = ::ext_php_rs::php::types::object::OwnedZendObject::new_stdclass();
                 #(#fields)*
                 obj.set_zval(zv, persistent)
+            }
+        }
+    })
+}
+
+fn parse_enum(
+    data: DataEnum,
+    ident: Ident,
+    impl_generics: ImplGenerics,
+    ty_generics: TypeGenerics,
+    where_clause: WhereClause,
+) -> Result<TokenStream> {
+    let variants = data.variants.iter().filter_map(|variant| {
+        // can have default fields - in this case, return `null`.
+        if variant.fields.len() != 1 {
+            return None;
+        }
+
+        let variant_ident = &variant.ident;
+        Some(quote! {
+            #ident::#variant_ident(val) => val.set_zval(zv, persistent)
+        })
+    });
+
+    Ok(quote! {
+        impl #impl_generics ::ext_php_rs::php::types::zval::IntoZval for #ident #ty_generics #where_clause {
+            const TYPE: ::ext_php_rs::php::enums::DataType = ::ext_php_rs::php::enums::DataType::Mixed;
+
+            fn set_zval(
+                self,
+                zv: &mut ::ext_php_rs::php::types::zval::Zval,
+                persistent: bool,
+            ) -> ::ext_php_rs::errors::Result<()> {
+                use ::ext_php_rs::php::types::zval::IntoZval;
+
+                match self {
+                    #(#variants,)*
+                    _ => {
+                        zv.set_null();
+                        Ok(())
+                    }
+                }
             }
         }
     })

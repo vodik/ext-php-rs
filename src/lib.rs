@@ -547,6 +547,8 @@ pub use ext_php_rs_derive::php_startup;
 /// [`Zval::string`]: crate::php::types::zval::Zval::string
 pub use ext_php_rs_derive::FromZval;
 
+pub use ext_php_rs_derive::IntoZval;
+
 /// A module typically glob-imported containing the typically required macros and imports.
 pub mod prelude {
     pub use crate::php::exceptions::{PhpException, PhpResult};
@@ -563,4 +565,5 @@ pub mod prelude {
     pub use crate::php_module;
     pub use crate::php_startup;
     pub use crate::FromZval;
+    pub use crate::IntoZval;
 }

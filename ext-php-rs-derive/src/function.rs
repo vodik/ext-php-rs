@@ -217,7 +217,8 @@ impl Arg {
     pub fn new(name: &str, ty: &str, nullable: bool, default: Option<String>) -> Self {
         Self {
             name: name.to_string(),
-            ty: Regex::new(r"'[A-Za-z]+")
+            // remove lifetimes - wish there was a better way :(
+            ty: Regex::new(r"'[A-Za-z ]+[,]?")
                 .unwrap()
                 .replace_all(ty, "")
                 .to_string(),
@@ -361,7 +362,7 @@ impl Function {
             })
             .collect::<Vec<_>>();
         let output = self.output.as_ref().map(|(ty, nullable)| {
-            let ty: Type = syn::parse_str(ty).unwrap();
+            let ty: Type = syn::parse_str(ty).expect("failed to parse ty: function.rs:365");
 
             // TODO allow reference returns?
             quote! {

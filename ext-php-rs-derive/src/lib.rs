@@ -4,6 +4,7 @@ mod extern_;
 mod from_zval;
 mod function;
 mod impl_;
+mod into_zval;
 mod method;
 mod module;
 mod startup_function;
@@ -134,6 +135,17 @@ pub fn from_zval_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
     match from_zval::parser(input) {
+        Ok(parsed) => parsed,
+        Err(e) => syn::Error::new(Span::call_site(), e).to_compile_error(),
+    }
+    .into()
+}
+
+#[proc_macro_derive(IntoZval)]
+pub fn into_zval_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    match into_zval::parser(input) {
         Ok(parsed) => parsed,
         Err(e) => syn::Error::new(Span::call_site(), e).to_compile_error(),
     }

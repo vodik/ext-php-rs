@@ -97,12 +97,6 @@ pub fn parser(input: &mut ImplItemMethod, rename_rule: RenameRule) -> Result<Par
         }
     }
 
-    if is_constructor
-        && (!matches!(visibility, Visibility::Public) || identifier.is_some() || as_prop.is_some())
-    {
-        bail!("`#[constructor]` attribute cannot be combined with the visibility, getter/setter or rename attributes.");
-    }
-
     input.attrs.clear();
 
     let ImplItemMethod { sig, .. } = &input;
@@ -117,6 +111,11 @@ pub fn parser(input: &mut ImplItemMethod, rename_rule: RenameRule) -> Result<Par
     if name == "__construct" {
         is_constructor = true;
     }
+
+    if is_constructor && (!matches!(visibility, Visibility::Public) || as_prop.is_some()) {
+        bail!("`#[constructor]` attribute cannot be combined with the visibility or getter/setter attributes.");
+    }
+
     let bail = if is_constructor {
         quote! { return ConstructorResult::ArgError; }
     } else {
